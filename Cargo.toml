@@ -1,0 +1,9 @@
+[package]
+name = "w1-netlink"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+netlink-packet-core = "0.4.1"
+netlink-sys = "0.8.1"
+thiserror = "1.0.30"
