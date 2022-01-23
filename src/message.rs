@@ -86,31 +86,61 @@ impl From<W1MessageType> for u8 {
 }
 
 #[derive(Debug, Clone)]
+pub struct TargetId([u8; 8]);
+
+impl TargetId {
+    pub fn master_id(id: u32) -> Self {
+        let mut inner = [0u8; 8];
+        (inner[0..4]).copy_from_slice(&id.to_le_bytes());
+        Self(inner)
+    }
+
+    pub fn slave_id(id: [u8; 8]) -> Self {
+        Self(id)
+    }
+
+    pub fn as_master_id(&self) -> u32 {
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&self.0[0..4]);
+        u32::from_le_bytes(bytes)
+    }
+
+    pub fn as_slave_id(&self) -> [u8; 8] {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct W1MessageHeader {
     /// Message type
     msg_type: W1MessageType,
     /// Error indication from kernel
     status: u8,
     /// Master or slave ID
-    id: u64,
+    id: TargetId,
 }
 
 pub struct W1NetlinkMessage<T> {
     header: W1MessageHeader,
-    data: T,
+    cmds: Vec<T>,
 }
 
 impl<T> W1NetlinkMessage<T> {
     pub const HEADER_LEN: usize = mem::size_of::<W1NetlinkMsg>();
 
-    pub fn new(msg_type: W1MessageType, id: u64, data: T) -> Self {
+    pub fn new(
+        msg_type: W1MessageType,
+        target_id: TargetId,
+        cmds: impl IntoIterator<Item = T>,
+    ) -> Self {
+        let cmds = cmds.into_iter().collect();
         Self {
             header: W1MessageHeader {
                 msg_type,
                 status: 0,
-                id,
+                id: target_id,
             },
-            data,
+            cmds,
         }
     }
 }
@@ -162,15 +192,20 @@ where
         let header = W1MessageHeader {
             msg_type,
             status,
-            id: u64::from_le_bytes(id),
+            id: TargetId(id),
         };
 
         let len = len as usize;
-        // todo: multiple items
-        let (data, _) = T::deserialize(&header, &payload[0..len])?;
+        let mut cmds = Vec::new();
+        let mut cursor = 0;
+        while cursor < len {
+            let (item, read) = T::deserialize(&header, &payload[cursor..len])?;
+            cmds.push(item);
+            cursor += read;
+        }
 
         let read = len + Self::HEADER_LEN;
-        Ok((Self { header, data }, read))
+        Ok((Self { header, cmds }, read))
     }
 }
 
@@ -179,10 +214,12 @@ where
     T: Serializable,
 {
     fn buffer_len(&self) -> usize {
-        self.data.buffer_len() + Self::HEADER_LEN
+        let inner: usize = self.cmds.iter().map(Serializable::buffer_len).sum();
+        inner + Self::HEADER_LEN
     }
 
     fn serialize(&self, buffer: &mut [u8]) {
+        let len = (self.buffer_len() - Self::HEADER_LEN) as u16;
         let W1MessageHeader {
             msg_type,
             status,
@@ -191,14 +228,19 @@ where
         let raw = W1NetlinkMsg {
             r#type: msg_type.into(),
             status,
-            len: self.data.buffer_len() as u16,
-            id: id.to_le_bytes(),
+            len,
+            id: id.0,
         };
         let msg = safe_transmute::transmute_one_to_bytes(&raw);
 
         debug_assert_eq!(Self::HEADER_LEN, mem::size_of::<W1NetlinkMsg>());
         buffer[0..Self::HEADER_LEN].copy_from_slice(msg);
 
-        self.data.serialize(&mut buffer[Self::HEADER_LEN..])
+        let mut cursor = 0;
+        for item in &self.cmds {
+            let len = item.buffer_len();
+            item.serialize(&mut buffer[cursor..cursor + len]);
+            cursor += len;
+        }
     }
 }

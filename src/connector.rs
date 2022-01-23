@@ -43,7 +43,8 @@ pub struct NlConnectorMessage<T> {
 impl<T> NlConnectorMessage<T> {
     pub const HEADER_LEN: usize = mem::size_of::<CnMsg>();
 
-    pub fn new(seq: u32, payload: Vec<T>) -> Self {
+    pub fn new(seq: u32, payload: impl IntoIterator<Item = T>) -> Self {
+        let payload = payload.into_iter().collect();
         Self {
             header: NlConnectorHeader {
                 seq,
