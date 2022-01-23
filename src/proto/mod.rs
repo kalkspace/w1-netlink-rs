@@ -11,6 +11,8 @@
 //! command request. One reply is generated exactly for one w1_netlink_cmd
 //! read request.
 
+use std::{convert::Infallible, marker::PhantomData};
+
 pub mod command;
 pub mod connector;
 pub mod message;
@@ -19,10 +21,22 @@ pub mod message;
 #[error("Invalid value received: {0}")]
 pub struct InvalidValue(u8);
 
+#[derive(Debug, thiserror::Error)]
+#[error("Invalid length: {0}")]
+pub struct InvalidLength(usize);
+
 pub trait Serializable {
     fn buffer_len(&self) -> usize;
 
     fn serialize(&self, buffer: &mut [u8]);
+}
+
+impl Serializable for () {
+    fn buffer_len(&self) -> usize {
+        0
+    }
+
+    fn serialize(&self, _buffer: &mut [u8]) {}
 }
 
 pub trait Deserializable
@@ -33,4 +47,16 @@ where
     type Error: std::error::Error + Send + Sync + 'static;
 
     fn deserialize(header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Empty<H>(PhantomData<H>);
+
+impl<H> Deserializable for Empty<H> {
+    type Header = H;
+    type Error = Infallible;
+
+    fn deserialize(_header: &Self::Header, _payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+        Ok((Self(PhantomData::default()), 0))
+    }
 }
