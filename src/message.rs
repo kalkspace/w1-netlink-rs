@@ -1,5 +1,46 @@
-use crate::InvalidValue;
+use std::mem;
 
+use self::raw::W1NetlinkMsg;
+use crate::{
+    connector::{NlConnectorHeader, NlConnectorType},
+    Deserializable, InvalidValue, Serializable,
+};
+
+mod raw {
+    //! Taken from https://www.kernel.org/doc/Documentation/w1/w1.netlink
+
+    use safe_transmute::TriviallyTransmutable;
+
+    pub mod constants {
+        pub const CONNECTOR_W1_IDX: u32 = 0x3;
+        pub const CONNECTOR_W1_VAL: u32 = 0x1;
+
+        pub const W1_SLAVE_ADD: u8 = 0;
+        pub const W1_SLAVE_REMOVE: u8 = 1;
+        pub const W1_MASTER_ADD: u8 = 2;
+        pub const W1_MASTER_REMOVE: u8 = 3;
+        pub const W1_MASTER_CMD: u8 = 4;
+        pub const W1_SLAVE_CMD: u8 = 5;
+        pub const W1_LIST_MASTERS: u8 = 6;
+    }
+
+    #[derive(Clone, Copy)]
+    pub struct W1NetlinkMsg {
+        /// Message type. See also [constants].
+        pub r#type: u8,
+        /// Error indication from kernel
+        pub status: u8,
+        /// Size of data attached to this header data
+        pub len: u16,
+        /// Master or slave ID
+        pub id: [u8; 8],
+    }
+
+    unsafe impl TriviallyTransmutable for W1NetlinkMsg {}
+}
+
+/// See also [raw::constants].
+#[derive(Debug, Clone, Copy)]
 pub enum W1MessageType {
     SlaveAdd,
     SlaveRemove,
@@ -14,7 +55,7 @@ impl TryFrom<u8> for W1MessageType {
     type Error = InvalidValue;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        use crate::constants::*;
+        use self::raw::constants::*;
         let t = match value {
             W1_SLAVE_ADD => Self::SlaveAdd,
             W1_SLAVE_REMOVE => Self::SlaveRemove,
@@ -31,7 +72,7 @@ impl TryFrom<u8> for W1MessageType {
 
 impl From<W1MessageType> for u8 {
     fn from(mt: W1MessageType) -> Self {
-        use crate::constants::*;
+        use self::raw::constants::*;
         match mt {
             W1MessageType::SlaveAdd => W1_SLAVE_ADD,
             W1MessageType::SlaveRemove => W1_SLAVE_REMOVE,
@@ -44,20 +85,120 @@ impl From<W1MessageType> for u8 {
     }
 }
 
-pub struct W1NetlinkMessage<T> {
-    r#type: W1MessageType,
+#[derive(Debug, Clone)]
+pub struct W1MessageHeader {
+    /// Message type
+    msg_type: W1MessageType,
+    /// Error indication from kernel
     status: u8,
+    /// Master or slave ID
     id: u64,
+}
+
+pub struct W1NetlinkMessage<T> {
+    header: W1MessageHeader,
     data: T,
 }
 
 impl<T> W1NetlinkMessage<T> {
+    pub const HEADER_LEN: usize = mem::size_of::<W1NetlinkMsg>();
+
     pub fn new(msg_type: W1MessageType, id: u64, data: T) -> Self {
         Self {
-            r#type: msg_type,
-            status: 0,
-            id,
+            header: W1MessageHeader {
+                msg_type,
+                status: 0,
+                id,
+            },
             data,
         }
+    }
+}
+
+impl<T> NlConnectorType for W1NetlinkMessage<T> {
+    fn idx() -> u32 {
+        raw::constants::CONNECTOR_W1_IDX
+    }
+
+    fn val() -> u32 {
+        raw::constants::CONNECTOR_W1_VAL
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DeserializeError<E: std::error::Error> {
+    #[error("Invalid header payload: {0}")]
+    InvalidHeader(safe_transmute::Error<'static, u8, W1NetlinkMsg>),
+
+    #[error("Invalid message type: {0}")]
+    InvalidMessageType(InvalidValue),
+
+    #[error("Payload length does not match header")]
+    InvalidPayloadLength,
+
+    #[error(transparent)]
+    Inner(#[from] E),
+}
+
+impl<T> Deserializable for W1NetlinkMessage<T>
+where
+    T: Deserializable<Header = W1MessageHeader>,
+{
+    type Header = NlConnectorHeader;
+
+    type Error = DeserializeError<T::Error>;
+
+    fn deserialize(_header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+        let (header, payload) = payload.split_at(Self::HEADER_LEN);
+        let W1NetlinkMsg {
+            r#type,
+            status,
+            len,
+            id,
+        } = safe_transmute::transmute_one_pedantic(header)
+            .map_err(|e| Self::Error::InvalidHeader(e.without_src()))?;
+
+        let msg_type = r#type.try_into().map_err(Self::Error::InvalidMessageType)?;
+        let header = W1MessageHeader {
+            msg_type,
+            status,
+            id: u64::from_le_bytes(id),
+        };
+
+        let len = len as usize;
+        // todo: multiple items
+        let (data, _) = T::deserialize(&header, &payload[0..len])?;
+
+        let read = len + Self::HEADER_LEN;
+        Ok((Self { header, data }, read))
+    }
+}
+
+impl<T> Serializable for W1NetlinkMessage<T>
+where
+    T: Serializable,
+{
+    fn buffer_len(&self) -> usize {
+        self.data.buffer_len() + Self::HEADER_LEN
+    }
+
+    fn serialize(&self, buffer: &mut [u8]) {
+        let W1MessageHeader {
+            msg_type,
+            status,
+            id,
+        } = self.header.clone();
+        let raw = W1NetlinkMsg {
+            r#type: msg_type.into(),
+            status,
+            len: self.data.buffer_len() as u16,
+            id: id.to_le_bytes(),
+        };
+        let msg = safe_transmute::transmute_one_to_bytes(&raw);
+
+        debug_assert_eq!(Self::HEADER_LEN, mem::size_of::<W1NetlinkMsg>());
+        buffer[0..Self::HEADER_LEN].copy_from_slice(msg);
+
+        self.data.serialize(&mut buffer[Self::HEADER_LEN..])
     }
 }
