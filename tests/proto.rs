@@ -15,7 +15,7 @@ async fn write_req() {
     let (conn, mut handle, mut messages) = new_connection(NETLINK_CONNECTOR).expect("");
     tokio::spawn(conn);
 
-    let cmd = W1NetlinkCommand::Search;
+    let cmd = W1NetlinkCommand::Search(None);
     let msg = W1NetlinkMessage::new(W1MessageType::MasterCmd, TargetId::master_id(1), [cmd]);
     let cmsg = NlConnectorMessage::new(0, [msg]);
 
