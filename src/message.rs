@@ -24,6 +24,7 @@ mod raw {
         pub const W1_LIST_MASTERS: u8 = 6;
     }
 
+    #[repr(C)]
     #[derive(Clone, Copy)]
     pub struct W1NetlinkMsg {
         /// Message type. See also [constants].

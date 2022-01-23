@@ -135,11 +135,7 @@ where
     }
 
     fn buffer_len(&self) -> usize {
-        let inner_len: usize = self
-            .payload
-            .iter()
-            .map(Serializable::buffer_len)
-            .fold(0, |acc, l| acc + l);
+        let inner_len: usize = self.payload.iter().map(Serializable::buffer_len).sum();
         inner_len + Self::HEADER_LEN
     }
 
