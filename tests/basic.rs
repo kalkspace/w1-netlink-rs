@@ -7,7 +7,7 @@ use w1_netlink::proto::{
 
 #[test]
 fn serialize() {
-    let cmd = W1NetlinkCommand::Search;
+    let cmd = W1NetlinkCommand::Search(None);
     let msg = W1NetlinkMessage::new(W1MessageType::MasterCmd, TargetId::master_id(0), [cmd]);
     let cmsg = NlConnectorMessage::new(0, [msg]);
 
