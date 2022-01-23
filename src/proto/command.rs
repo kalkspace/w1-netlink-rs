@@ -1,7 +1,7 @@
 use std::mem;
 
 use self::raw::W1NetlinkCmd;
-use super::{message::W1MessageHeader, Deserializable, InvalidValue, Serializable};
+use super::{message::W1MessageHeader, Deserializable, InvalidLength, InvalidValue, Serializable};
 
 mod raw {
     //! Taken from https://www.kernel.org/doc/Documentation/w1/w1.netlink
@@ -89,11 +89,14 @@ impl From<W1CommandType> for u8 {
 }
 
 #[derive(Debug, Clone)]
+pub struct SlaveId([u8; 8]);
+
+#[derive(Debug, Clone)]
 pub enum W1NetlinkCommand {
     Write(Vec<u8>),
     Read(Option<Vec<u8>>),
-    Search,
-    AlarmSearch,
+    Search(Option<Vec<SlaveId>>),
+    AlarmSearch(Option<Vec<SlaveId>>),
     Touch,
     Reset,
     //SlaveAdd(), todo
@@ -108,12 +111,23 @@ impl W1NetlinkCommand {
         match self {
             W1NetlinkCommand::Write(_) => W1CommandType::Write,
             W1NetlinkCommand::Read(_) => W1CommandType::Read,
-            W1NetlinkCommand::Search => W1CommandType::Search,
-            W1NetlinkCommand::AlarmSearch => W1CommandType::AlarmSearch,
+            W1NetlinkCommand::Search(_) => W1CommandType::Search,
+            W1NetlinkCommand::AlarmSearch(_) => W1CommandType::AlarmSearch,
             W1NetlinkCommand::Touch => W1CommandType::Touch,
             W1NetlinkCommand::Reset => W1CommandType::Reset,
             W1NetlinkCommand::ListSlaves => W1CommandType::ListSlaves,
         }
+    }
+
+    fn read_slaves(payload: &[u8]) -> Result<Vec<SlaveId>, InvalidLength> {
+        let mut slaves = Vec::new();
+        for id in payload.chunks(8) {
+            if id.len() != 8 {
+                return Err(InvalidLength(id.len()));
+            }
+            slaves.push(SlaveId(id.try_into().unwrap()));
+        }
+        Ok(slaves)
     }
 }
 
@@ -124,6 +138,9 @@ pub enum DeserializeError {
 
     #[error("Unable to read header: {0}")]
     InvalidHeader(safe_transmute::Error<'static, u8, W1NetlinkCmd>),
+
+    #[error("Cannot read slave id: {0}")]
+    InvalidLength(#[from] InvalidLength),
 }
 
 impl Deserializable for W1NetlinkCommand {
@@ -144,8 +161,8 @@ impl Deserializable for W1NetlinkCommand {
                 let payload = payload.to_vec();
                 Self::Write(payload)
             }
-            W1CommandType::Search => Self::Search,
-            W1CommandType::AlarmSearch => Self::AlarmSearch,
+            W1CommandType::Search => Self::Search(Some(Self::read_slaves(payload)?)),
+            W1CommandType::AlarmSearch => Self::AlarmSearch(Some(Self::read_slaves(payload)?)),
             W1CommandType::Touch => Self::Touch,
             W1CommandType::Reset => Self::Reset,
             W1CommandType::SlaveAdd => unimplemented!(),
@@ -161,8 +178,8 @@ impl Serializable for W1NetlinkCommand {
         let inner = match self {
             W1NetlinkCommand::Write(pl) => pl.len(),
             W1NetlinkCommand::Read(pl) => pl.as_ref().map(Vec::len).unwrap_or_default(),
-            W1NetlinkCommand::Search => 0,
-            W1NetlinkCommand::AlarmSearch => 0,
+            W1NetlinkCommand::Search(_) => 0,
+            W1NetlinkCommand::AlarmSearch(_) => 0,
             W1NetlinkCommand::Touch => 0,
             W1NetlinkCommand::Reset => 0,
             W1NetlinkCommand::ListSlaves => todo!(),
@@ -190,8 +207,8 @@ impl Serializable for W1NetlinkCommand {
                     buffer[Self::HEADER_LEN..].copy_from_slice(pl);
                 }
             }
-            W1NetlinkCommand::Search => {}
-            W1NetlinkCommand::AlarmSearch => {}
+            W1NetlinkCommand::Search(_) => {}
+            W1NetlinkCommand::AlarmSearch(_) => {}
             W1NetlinkCommand::Touch => {}
             W1NetlinkCommand::Reset => {}
             W1NetlinkCommand::ListSlaves => todo!(),

@@ -3,7 +3,7 @@ use std::mem;
 use self::raw::W1NetlinkMsg;
 use super::{
     connector::{NlConnectorHeader, NlConnectorType},
-    Deserializable, InvalidValue, Serializable,
+    Deserializable, InvalidLength, InvalidValue, Serializable,
 };
 
 mod raw {
@@ -85,10 +85,6 @@ impl From<W1MessageType> for u8 {
         }
     }
 }
-
-#[derive(Debug, thiserror::Error)]
-#[error("Invalid length for Master ID: {0}")]
-pub struct InvalidLength(usize);
 
 /// Mainly needed to read replies to the [W1MessageType::ListMasters] message.
 #[derive(Debug, Clone)]
