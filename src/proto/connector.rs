@@ -29,12 +29,14 @@ pub trait NlConnectorType {
     fn val() -> u32;
 }
 
+#[derive(Debug, Clone)]
 pub struct NlConnectorHeader {
     seq: u32,
     ack: u32,
     flags: u16,
 }
 
+#[derive(Debug, Clone)]
 pub struct NlConnectorMessage<T> {
     header: NlConnectorHeader,
     payload: Vec<T>,

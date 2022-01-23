@@ -88,6 +88,7 @@ impl From<W1CommandType> for u8 {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum W1NetlinkCommand {
     Write(Vec<u8>),
     Read(Option<Vec<u8>>),

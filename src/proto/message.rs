@@ -142,6 +142,7 @@ pub struct W1MessageHeader {
     id: TargetId,
 }
 
+#[derive(Debug, Clone)]
 pub struct W1NetlinkMessage<T> {
     header: W1MessageHeader,
     cmds: Vec<T>,
