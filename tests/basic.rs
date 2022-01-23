@@ -1,5 +1,5 @@
 use netlink_packet_core::NetlinkMessage;
-use w1_netlink::{
+use w1_netlink::proto::{
     command::W1NetlinkCommand,
     connector::NlConnectorMessage,
     message::{TargetId, W1MessageType, W1NetlinkMessage},

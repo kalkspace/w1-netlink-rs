@@ -1,7 +1,7 @@
 use std::mem;
 
 use self::raw::W1NetlinkMsg;
-use crate::{
+use super::{
     connector::{NlConnectorHeader, NlConnectorType},
     Deserializable, InvalidValue, Serializable,
 };
@@ -83,6 +83,27 @@ impl From<W1MessageType> for u8 {
             W1MessageType::SlaveCmd => W1_SLAVE_CMD,
             W1MessageType::ListMasters => W1_LIST_MASTERS,
         }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Invalid length for Master ID: {0}")]
+pub struct InvalidLength(usize);
+
+/// Mainly needed to read replies to the [W1MessageType::ListMasters] message.
+#[derive(Debug, Clone)]
+pub struct MasterId(u32);
+
+impl Deserializable for MasterId {
+    type Header = W1MessageHeader;
+    type Error = InvalidLength;
+
+    fn deserialize(_header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+        if payload.len() < 4 {
+            return Err(InvalidLength(payload.len()));
+        }
+        let val = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+        Ok((Self(val), 4))
     }
 }
 

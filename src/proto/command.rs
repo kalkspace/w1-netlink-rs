@@ -1,8 +1,7 @@
 use std::mem;
 
-use crate::{message::W1MessageHeader, Deserializable, InvalidValue, Serializable};
-
 use self::raw::W1NetlinkCmd;
+use super::{message::W1MessageHeader, Deserializable, InvalidValue, Serializable};
 
 mod raw {
     //! Taken from https://www.kernel.org/doc/Documentation/w1/w1.netlink

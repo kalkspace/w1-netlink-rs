@@ -2,7 +2,7 @@ use netlink_packet_core::{NetlinkDeserializable, NetlinkPayload, NetlinkSerializ
 use std::mem;
 
 use self::raw::CnMsg;
-use crate::{Deserializable, Serializable};
+use super::{Deserializable, Serializable};
 
 mod raw {
     use safe_transmute::TriviallyTransmutable;
