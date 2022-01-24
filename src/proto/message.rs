@@ -103,6 +103,16 @@ impl Deserializable for MasterId {
     }
 }
 
+impl Serializable for MasterId {
+    fn buffer_len(&self) -> usize {
+        4
+    }
+
+    fn serialize(&self, buffer: &mut [u8]) {
+        buffer.copy_from_slice(&self.0.to_le_bytes())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TargetId([u8; 8]);
 

@@ -1,4 +1,4 @@
-use netlink_packet_core::{NetlinkDeserializable, NetlinkPayload, NetlinkSerializable};
+use netlink_packet_core::{NetlinkDeserializable, NetlinkPayload, NetlinkSerializable, NLMSG_DONE};
 use std::mem;
 
 use self::raw::CnMsg;
@@ -133,7 +133,7 @@ where
     T: Serializable + NlConnectorType,
 {
     fn message_type(&self) -> u16 {
-        netlink_sys::constants::NETLINK_CONNECTOR as u16
+        NLMSG_DONE
     }
 
     fn buffer_len(&self) -> usize {
@@ -157,7 +157,7 @@ where
         debug_assert_eq!(Self::HEADER_LEN, mem::size_of::<CnMsg>());
         buffer[0..Self::HEADER_LEN].copy_from_slice(msg);
 
-        let mut cursor = 0;
+        let mut cursor = Self::HEADER_LEN;
         for item in &self.payload {
             let len = item.buffer_len();
             item.serialize(&mut buffer[cursor..cursor + len]);
