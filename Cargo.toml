@@ -11,5 +11,6 @@ thiserror = "1.0.30"
 
 [dev-dependencies]
 futures = "0.3.19"
-netlink-proto = "0.9.1"
-tokio = { version = "1.15.0", features = ["macros", "test-util", "net"] }
+netlink-proto = { version = "0.9.1", features = ["tokio_socket"] }
+tokio = { version = "1.15.0", features = ["macros", "test-util", "net", "rt-multi-thread"] }
+env_logger = "0.9.0"
