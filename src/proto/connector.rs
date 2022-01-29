@@ -20,7 +20,7 @@ mod raw {
         pub flags: u16,
     }
 
-    /// Safety: Struct uses repr(C) and should we well aligned for byte slices
+    /// Safety: Struct uses repr(C) and should be well aligned for byte slices
     unsafe impl TriviallyTransmutable for CnMsg {}
 }
 
