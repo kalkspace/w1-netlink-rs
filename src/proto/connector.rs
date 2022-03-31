@@ -58,6 +58,16 @@ impl<T> NlConnectorMessage<T> {
     }
 }
 
+impl<T> IntoIterator for NlConnectorMessage<T> {
+    type Item = T;
+
+    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.payload.into_iter()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DeserializeError<E: std::error::Error> {
     #[error("Invalid Netlink message type")]
@@ -87,13 +97,9 @@ where
     type Error = DeserializeError<T::Error>;
 
     fn deserialize(
-        header: &netlink_packet_core::NetlinkHeader,
+        _header: &netlink_packet_core::NetlinkHeader,
         payload: &[u8],
     ) -> Result<Self, Self::Error> {
-        if header.message_type as isize != netlink_sys::constants::NETLINK_CONNECTOR {
-            return Err(Self::Error::InvalidMessageType);
-        }
-
         let (header, payload_bytes) = payload.split_at(mem::size_of::<CnMsg>());
         let CnMsg {
             idx,
@@ -105,9 +111,6 @@ where
         } = safe_transmute::transmute_one_pedantic(header)
             .map_err(|e| Self::Error::InvalidHeader(e.without_src()))?;
 
-        if len as usize != payload.len() {
-            return Err(Self::Error::InvalidPayloadLength);
-        }
         if idx != T::idx() {
             return Err(Self::Error::UnexpectedIdx(T::idx(), idx));
         }
@@ -118,7 +121,7 @@ where
         let header = NlConnectorHeader { seq, ack, flags };
         let mut payload = Vec::new();
         let mut cursor = 0;
-        while cursor < payload.len() {
+        while cursor < payload_bytes.len() {
             let (item, n) = T::deserialize(&payload_bytes[cursor..])?;
             payload.push(item);
             cursor += n;

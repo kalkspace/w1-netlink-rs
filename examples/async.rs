@@ -1,46 +1,95 @@
-use futures::StreamExt;
-use netlink_packet_core::{NetlinkMessage, NLM_F_ACK, NLM_F_REQUEST};
-use netlink_proto::new_connection;
+use futures::{channel::mpsc::UnboundedReceiver, Stream, StreamExt};
+use netlink_packet_core::{
+    NetlinkDeserializable, NetlinkMessage, NetlinkPayload, NLM_F_ACK, NLM_F_REQUEST,
+};
+use netlink_proto::{new_connection, ConnectionHandle};
 use netlink_sys::{protocols::NETLINK_CONNECTOR, SocketAddr};
 use w1_netlink::proto::{
-    connector::NlConnectorMessage,
-    message::{MasterId, TargetId, W1MessageType, W1NetlinkMessage},
+    command::W1NetlinkCommand, connector::NlConnectorMessage, message::W1NetlinkMessage,
 };
 
-#[tokio::main]
-async fn main() {
-    env_logger::init();
+struct W1Provider {
+    handle: ConnectionHandle<NlConnectorMessage<W1NetlinkMessage>>,
+    messages: UnboundedReceiver<(
+        NetlinkMessage<NlConnectorMessage<W1NetlinkMessage>>,
+        SocketAddr,
+    )>,
+}
 
-    let kernel_unicast = SocketAddr::new(0, 0);
+impl W1Provider {
+    pub fn connect() -> Self {
+        let (conn, handle, messages) =
+            new_connection(NETLINK_CONNECTOR).expect("failed to create connection");
+        tokio::task::spawn(async move {
+            conn.await;
+            println!("CONNECTION TASK EXITED!");
+        });
 
-    let (conn, mut handle, mut messages) =
-        new_connection(NETLINK_CONNECTOR).expect("failed to create connection");
-    tokio::task::spawn(async move {
-        conn.await;
-        println!("CONNECTION TASK EXITED!");
-    });
+        Self { handle, messages }
+    }
 
-    tokio::spawn(async move {
-        let msg = W1NetlinkMessage::<MasterId>::new(
-            W1MessageType::ListMasters,
-            TargetId::master_id(0),
-            [],
-        );
-        let cmsg = NlConnectorMessage::new(0, [msg]);
+    pub async fn list_masters(&mut self) -> Vec<u32> {
+        let msg = W1NetlinkMessage::ListMasters(None);
+
+        let _ = self.request(msg);
+
+        println!("Sent. Receiving response.");
+
+        let deserialized_message = self.receive().await;
+        if let W1NetlinkMessage::ListMasters(Some(master_ids)) = deserialized_message {
+            return master_ids;
+        }
+        unimplemented!()
+    }
+
+    pub async fn search(&mut self, master_id: u32) {
+        let msg = W1NetlinkMessage::MasterCommand {
+            target: master_id,
+            cmds: vec![W1NetlinkCommand::Search(None)],
+        };
+
+        let _ = self.request(msg);
+        let message = self.receive().await;
+        println!("{:?}", message)
+    }
+
+    fn request(
+        &mut self,
+        message: W1NetlinkMessage,
+    ) -> impl Stream<Item = NetlinkMessage<NlConnectorMessage<W1NetlinkMessage>>> {
+        let kernel_unicast = SocketAddr::new(0, 0);
+        let cmsg = NlConnectorMessage::new(0, [message]);
 
         let mut nl_msg = NetlinkMessage::from(cmsg);
         nl_msg.header.port_number = std::process::id();
         nl_msg.header.flags = NLM_F_ACK | NLM_F_REQUEST;
 
-        let mut stream = handle.request(nl_msg, kernel_unicast).unwrap();
-        println!("Sent. Receiving response.");
-        while let Some(msg) = stream.next().await {
-            println!("got msg: {:?}", msg);
-        }
-    });
-
-    println!("Receiving messages...");
-    while let Some((message, _addr)) = messages.next().await {
-        println!("got event: {:?}", message);
+        self.handle.request(nl_msg, kernel_unicast).unwrap()
     }
+
+    async fn receive(&mut self) -> W1NetlinkMessage {
+        if let Some((message, _addr)) = self.messages.next().await {
+            println!("got event: {:?}", message);
+
+            if let NetlinkPayload::Done(Some(bytes)) = message.payload {
+                println!("{:02x?}", bytes);
+                let deserialized_message =
+                    NlConnectorMessage::<W1NetlinkMessage>::deserialize(&message.header, &bytes)
+                        .unwrap();
+                println!("{:?}", deserialized_message);
+                return deserialized_message.into_iter().next().unwrap();
+            }
+        }
+        unimplemented!()
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    env_logger::init();
+
+    let mut provider = W1Provider::connect();
+    let masters_list = provider.list_masters().await;
+    println!("{:?}", masters_list);
+    provider.search(masters_list[0]).await;
 }

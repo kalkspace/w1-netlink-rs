@@ -14,3 +14,8 @@ futures = "0.3.19"
 netlink-proto = { version = "0.9.1", features = ["tokio_socket"] }
 tokio = { version = "1.15.0", features = ["macros", "test-util", "net", "rt-multi-thread"] }
 env_logger = "0.9.0"
+
+[patch.crates-io]
+netlink-packet-core = { path = "../netlink/netlink-packet-core"}
+netlink-sys = { path = "../netlink/netlink-sys"}
+netlink-proto = {path = "../netlink/netlink-proto"}
