@@ -2,8 +2,8 @@ use std::mem;
 
 use self::raw::W1NetlinkMsg;
 use super::{
-    connector::{NlConnectorHeader, NlConnectorType},
-    Deserializable, InvalidLength, InvalidValue, Serializable,
+    command::W1NetlinkCommand, connector::NlConnectorType, Deserializable, InvalidValue,
+    Serializable,
 };
 
 mod raw {
@@ -42,7 +42,7 @@ mod raw {
 
 /// See also [raw::constants].
 #[derive(Debug, Clone, Copy)]
-pub enum W1MessageType {
+enum W1MessageType {
     SlaveAdd,
     SlaveRemove,
     MasterAdd,
@@ -86,95 +86,38 @@ impl From<W1MessageType> for u8 {
     }
 }
 
-/// Mainly needed to read replies to the [W1MessageType::ListMasters] message.
-#[derive(Debug, Clone)]
-pub struct MasterId(u32);
-
-impl Deserializable for MasterId {
-    type Header = W1MessageHeader;
-    type Error = InvalidLength;
-
-    fn deserialize(_header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error> {
-        if payload.len() < 4 {
-            return Err(InvalidLength(payload.len()));
-        }
-        let val = u32::from_le_bytes(payload[0..4].try_into().unwrap());
-        Ok((Self(val), 4))
-    }
-}
-
-impl Serializable for MasterId {
-    fn buffer_len(&self) -> usize {
-        4
-    }
-
-    fn serialize(&self, buffer: &mut [u8]) {
-        buffer.copy_from_slice(&self.0.to_le_bytes())
-    }
+#[derive(Debug, Clone, Copy)]
+pub enum EventKind {
+    Add,
+    Remove,
 }
 
 #[derive(Debug, Clone)]
-pub struct TargetId([u8; 8]);
-
-impl TargetId {
-    pub fn master_id(id: u32) -> Self {
-        let mut inner = [0u8; 8];
-        (inner[0..4]).copy_from_slice(&id.to_le_bytes());
-        Self(inner)
-    }
-
-    pub fn slave_id(id: [u8; 8]) -> Self {
-        Self(id)
-    }
-
-    pub fn as_master_id(&self) -> u32 {
-        let mut bytes = [0u8; 4];
-        bytes.copy_from_slice(&self.0[0..4]);
-        u32::from_le_bytes(bytes)
-    }
-
-    pub fn as_slave_id(&self) -> [u8; 8] {
-        self.0
-    }
+pub enum W1NetlinkMessage {
+    ListMasters(Option<Vec<u32>>),
+    MasterCommand {
+        target: u32,
+        cmds: Vec<W1NetlinkCommand>,
+    },
+    SlaveCommand {
+        target: u64,
+        cmds: Vec<W1NetlinkCommand>,
+    },
+    MasterEvent {
+        kind: EventKind,
+        target: u32,
+    },
+    SlaveEvent {
+        kind: EventKind,
+        target: u64,
+    },
 }
 
-#[derive(Debug, Clone)]
-pub struct W1MessageHeader {
-    /// Message type
-    msg_type: W1MessageType,
-    /// Error indication from kernel
-    status: u8,
-    /// Master or slave ID
-    id: TargetId,
-}
-
-#[derive(Debug, Clone)]
-pub struct W1NetlinkMessage<T> {
-    header: W1MessageHeader,
-    cmds: Vec<T>,
-}
-
-impl<T> W1NetlinkMessage<T> {
+impl W1NetlinkMessage {
     pub const HEADER_LEN: usize = mem::size_of::<W1NetlinkMsg>();
-
-    pub fn new(
-        msg_type: W1MessageType,
-        target_id: TargetId,
-        cmds: impl IntoIterator<Item = T>,
-    ) -> Self {
-        let cmds = cmds.into_iter().collect();
-        Self {
-            header: W1MessageHeader {
-                msg_type,
-                status: 0,
-                id: target_id,
-            },
-            cmds,
-        }
-    }
 }
 
-impl<T> NlConnectorType for W1NetlinkMessage<T> {
+impl NlConnectorType for W1NetlinkMessage {
     fn idx() -> u32 {
         raw::constants::CONNECTOR_W1_IDX
     }
@@ -185,7 +128,7 @@ impl<T> NlConnectorType for W1NetlinkMessage<T> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DeserializeError<E: std::error::Error> {
+pub enum DeserializeError {
     #[error("Invalid header payload: {0}")]
     InvalidHeader(safe_transmute::Error<'static, u8, W1NetlinkMsg>),
 
@@ -196,18 +139,13 @@ pub enum DeserializeError<E: std::error::Error> {
     InvalidPayloadLength,
 
     #[error(transparent)]
-    Inner(#[from] E),
+    Command(#[from] super::command::DeserializeError),
 }
 
-impl<T> Deserializable for W1NetlinkMessage<T>
-where
-    T: Deserializable<Header = W1MessageHeader>,
-{
-    type Header = NlConnectorHeader;
+impl Deserializable for W1NetlinkMessage {
+    type Error = DeserializeError;
 
-    type Error = DeserializeError<T::Error>;
-
-    fn deserialize(_header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+    fn deserialize(payload: &[u8]) -> Result<(Self, usize), Self::Error> {
         let (header, payload) = payload.split_at(Self::HEADER_LEN);
         let W1NetlinkMsg {
             r#type,
@@ -217,59 +155,104 @@ where
         } = safe_transmute::transmute_one_pedantic(header)
             .map_err(|e| Self::Error::InvalidHeader(e.without_src()))?;
 
-        let msg_type = r#type.try_into().map_err(Self::Error::InvalidMessageType)?;
-        let header = W1MessageHeader {
-            msg_type,
-            status,
-            id: TargetId(id),
-        };
-
-        let len = len as usize;
-        let mut cmds = Vec::new();
-        let mut cursor = 0;
-        while cursor < len {
-            let (item, read) = T::deserialize(&header, &payload[cursor..len])?;
-            cmds.push(item);
-            cursor += read;
+        if status > 0 {
+            todo!(); // error handling
         }
 
-        let read = len + Self::HEADER_LEN;
-        Ok((Self { header, cmds }, read))
+        let len = len as usize;
+        let msg_type = r#type.try_into().map_err(Self::Error::InvalidMessageType)?;
+        let ret = match msg_type {
+            W1MessageType::SlaveAdd => Self::SlaveEvent {
+                kind: EventKind::Add,
+                target: u64::from_le_bytes(id),
+            },
+            W1MessageType::SlaveRemove => Self::SlaveEvent {
+                kind: EventKind::Remove,
+                target: u64::from_le_bytes(id),
+            },
+            W1MessageType::MasterAdd => Self::MasterEvent {
+                kind: EventKind::Add,
+                target: u32::from_le_bytes(id[..4].try_into().unwrap()),
+            },
+            W1MessageType::MasterRemove => Self::MasterEvent {
+                kind: EventKind::Remove,
+                target: u32::from_le_bytes(id[..4].try_into().unwrap()),
+            },
+            W1MessageType::MasterCmd => {
+                let target = u32::from_le_bytes(id[..4].try_into().unwrap());
+                let (cmds, _) = Deserializable::deserialize(payload)?;
+                Self::MasterCommand { target, cmds }
+            }
+            W1MessageType::SlaveCmd => {
+                let target = u64::from_le_bytes(id);
+                let (cmds, _) = Deserializable::deserialize(payload)?;
+                Self::SlaveCommand { target, cmds }
+            }
+            W1MessageType::ListMasters => {
+                // read from payload
+                let mut bus_ids = Vec::new();
+                for chunk in payload.chunks(4) {
+                    if chunk.len() < 4 {
+                        return Err(DeserializeError::InvalidPayloadLength);
+                    }
+                    let id = u32::from_le_bytes(chunk.try_into().unwrap());
+                    bus_ids.push(id);
+                }
+                Self::ListMasters(Some(bus_ids))
+            }
+        };
+        Ok((ret, len + Self::HEADER_LEN))
     }
 }
 
-impl<T> Serializable for W1NetlinkMessage<T>
-where
-    T: Serializable,
-{
+impl Serializable for W1NetlinkMessage {
     fn buffer_len(&self) -> usize {
-        let inner: usize = self.cmds.iter().map(Serializable::buffer_len).sum();
+        use W1NetlinkMessage::*;
+        let inner = match self {
+            ListMasters(ids) => ids.as_ref().map(|v| v.len() * 4).unwrap_or(0),
+            MasterCommand { cmds, .. } => cmds.iter().map(Serializable::buffer_len).sum(),
+            SlaveCommand { cmds, .. } => cmds.iter().map(Serializable::buffer_len).sum(),
+            MasterEvent { .. } => 0,
+            SlaveEvent { .. } => 0,
+        };
         inner + Self::HEADER_LEN
     }
 
     fn serialize(&self, buffer: &mut [u8]) {
         let len = (self.buffer_len() - Self::HEADER_LEN) as u16;
-        let W1MessageHeader {
-            msg_type,
-            status,
-            id,
-        } = self.header.clone();
+
+        use W1NetlinkMessage::*;
+        let (msg_type, id, payload) = match self {
+            ListMasters(ids) => {
+                let pl: Vec<u8> = ids
+                    .as_ref()
+                    .map(|ids| {
+                        ids.iter()
+                            .cloned()
+                            .map(u32::to_le_bytes)
+                            .map(IntoIterator::into_iter)
+                            .flatten()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (W1MessageType::ListMasters, 0u64, pl)
+            }
+            MasterCommand { target, cmds } => todo!(),
+            SlaveCommand { target, cmds } => todo!(),
+            MasterEvent { kind, target } => todo!(),
+            SlaveEvent { kind, target } => todo!(),
+        };
+
         let raw = W1NetlinkMsg {
             r#type: msg_type.into(),
-            status,
+            status: 0,
             len,
-            id: id.0,
+            id: id.to_le_bytes(),
         };
         let msg = safe_transmute::transmute_one_to_bytes(&raw);
 
         debug_assert_eq!(Self::HEADER_LEN, mem::size_of::<W1NetlinkMsg>());
         buffer[0..Self::HEADER_LEN].copy_from_slice(msg);
-
-        let mut cursor = 0;
-        for item in &self.cmds {
-            let len = item.buffer_len();
-            item.serialize(&mut buffer[cursor..cursor + len]);
-            cursor += len;
-        }
+        buffer[Self::HEADER_LEN..].copy_from_slice(&payload);
     }
 }

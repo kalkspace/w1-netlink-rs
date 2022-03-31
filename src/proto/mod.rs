@@ -39,24 +39,59 @@ impl Serializable for () {
     fn serialize(&self, _buffer: &mut [u8]) {}
 }
 
+impl<T> Serializable for Vec<T>
+where
+    T: Serializable,
+{
+    fn buffer_len(&self) -> usize {
+        self.iter().map(Serializable::buffer_len).sum()
+    }
+
+    fn serialize(&self, buffer: &mut [u8]) {
+        let mut cursor = 0;
+        for item in self {
+            let len = item.buffer_len();
+            item.serialize(&mut buffer[cursor..cursor + len]);
+            cursor += len;
+        }
+    }
+}
+
 pub trait Deserializable
 where
     Self: Sized,
 {
-    type Header;
     type Error: std::error::Error + Send + Sync + 'static;
 
-    fn deserialize(header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error>;
+    fn deserialize(payload: &[u8]) -> Result<(Self, usize), Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Empty<H>(PhantomData<H>);
 
 impl<H> Deserializable for Empty<H> {
-    type Header = H;
     type Error = Infallible;
 
-    fn deserialize(_header: &Self::Header, _payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+    fn deserialize(_payload: &[u8]) -> Result<(Self, usize), Self::Error> {
         Ok((Self(PhantomData::default()), 0))
+    }
+}
+
+impl<T> Deserializable for Vec<T>
+where
+    T: Deserializable,
+{
+    type Error = T::Error;
+
+    fn deserialize(payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+        let len = payload.len();
+        let mut cmds = Vec::new();
+        let mut cursor = 0;
+        while cursor < len {
+            let (item, read) = T::deserialize(&payload[cursor..len])?;
+            cmds.push(item);
+            cursor += read;
+        }
+        Ok((cmds, cursor))
     }
 }

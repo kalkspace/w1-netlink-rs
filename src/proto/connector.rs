@@ -81,7 +81,7 @@ pub enum DeserializeError<E: std::error::Error> {
 
 impl<T> NetlinkDeserializable for NlConnectorMessage<T>
 where
-    T: Deserializable<Header = NlConnectorHeader> + NlConnectorType,
+    T: Deserializable + NlConnectorType,
     T::Error: std::error::Error,
 {
     type Error = DeserializeError<T::Error>;
@@ -119,7 +119,7 @@ where
         let mut payload = Vec::new();
         let mut cursor = 0;
         while cursor < payload.len() {
-            let (item, n) = T::deserialize(&header, &payload_bytes[cursor..])?;
+            let (item, n) = T::deserialize(&payload_bytes[cursor..])?;
             payload.push(item);
             cursor += n;
         }

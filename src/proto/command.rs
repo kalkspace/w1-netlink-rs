@@ -1,7 +1,7 @@
 use std::mem;
 
 use self::raw::W1NetlinkCmd;
-use super::{message::W1MessageHeader, Deserializable, InvalidLength, InvalidValue, Serializable};
+use super::{Deserializable, InvalidLength, InvalidValue, Serializable};
 
 mod raw {
     //! Taken from https://www.kernel.org/doc/Documentation/w1/w1.netlink
@@ -144,10 +144,9 @@ pub enum DeserializeError {
 }
 
 impl Deserializable for W1NetlinkCommand {
-    type Header = W1MessageHeader;
     type Error = DeserializeError;
 
-    fn deserialize(_header: &Self::Header, payload: &[u8]) -> Result<(Self, usize), Self::Error> {
+    fn deserialize(payload: &[u8]) -> Result<(Self, usize), Self::Error> {
         let (header, payload) = payload.split_at(mem::size_of::<W1NetlinkCmd>());
         let W1NetlinkCmd { cmd, len, .. } = safe_transmute::transmute_one_pedantic(header)
             .map_err(|e| Self::Error::InvalidHeader(e.without_src()))?;
