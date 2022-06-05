@@ -5,7 +5,9 @@ use netlink_packet_core::{
 use netlink_proto::{new_connection, ConnectionHandle};
 use netlink_sys::{protocols::NETLINK_CONNECTOR, SocketAddr};
 use w1_netlink::proto::{
-    command::W1NetlinkCommand, connector::NlConnectorMessage, message::W1NetlinkMessage,
+    command::{SlaveId, W1NetlinkCommand},
+    connector::NlConnectorMessage,
+    message::W1NetlinkMessage,
 };
 
 struct W1Provider {
@@ -42,7 +44,7 @@ impl W1Provider {
         unimplemented!()
     }
 
-    pub async fn search(&mut self, master_id: u32) {
+    pub async fn search(&mut self, master_id: u32) -> Vec<SlaveId> {
         let msg = W1NetlinkMessage::MasterCommand {
             target: master_id,
             cmds: vec![W1NetlinkCommand::Search(None)],
@@ -50,7 +52,19 @@ impl W1Provider {
 
         let _ = self.request(msg);
         let message = self.receive().await;
-        println!("{:?}", message)
+
+        if let W1NetlinkMessage::MasterCommand {
+            target: _,
+            mut cmds,
+        } = message
+        {
+            let cmd = cmds.remove(0);
+
+            if let W1NetlinkCommand::Search(Some(slave_ids)) = cmd {
+                return slave_ids;
+            }
+        }
+        unimplemented!()
     }
 
     fn request(
@@ -91,5 +105,6 @@ async fn main() {
     let mut provider = W1Provider::connect();
     let masters_list = provider.list_masters().await;
     println!("{:?}", masters_list);
-    provider.search(masters_list[0]).await;
+    let search_result = provider.search(masters_list[0]).await;
+    println!("{:?}", search_result);
 }
