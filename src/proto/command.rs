@@ -168,7 +168,7 @@ impl Deserializable for W1NetlinkCommand {
             W1CommandType::SlaveRemove => unimplemented!(),
             W1CommandType::ListSlaves => Self::ListSlaves,
         };
-        Ok((cmd, len as usize))
+        Ok((cmd, len as usize + mem::size_of::<W1NetlinkCmd>()))
     }
 }
 

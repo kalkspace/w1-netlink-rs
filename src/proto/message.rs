@@ -1,4 +1,4 @@
-use std::mem;
+use std::{iter, mem};
 
 use self::raw::W1NetlinkMsg;
 use super::{
@@ -237,7 +237,20 @@ impl Serializable for W1NetlinkMessage {
                     .unwrap_or_default();
                 (W1MessageType::ListMasters, 0u64, pl)
             }
-            MasterCommand { target, cmds } => todo!(),
+            MasterCommand { target, cmds } => {
+                let id: Vec<u8> = target
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(iter::repeat(0).take(4))
+                    .collect();
+                let id = u64::from_le_bytes(id.try_into().unwrap());
+                let buffer_len = cmds.iter().map(|cmd| cmd.buffer_len()).sum();
+                let mut pl = vec![0; buffer_len];
+                for cmd in cmds {
+                    cmd.serialize(&mut pl);
+                }
+                (W1MessageType::MasterCmd, id, pl)
+            }
             SlaveCommand { target, cmds } => todo!(),
             MasterEvent { kind, target } => todo!(),
             SlaveEvent { kind, target } => todo!(),
@@ -254,5 +267,35 @@ impl Serializable for W1NetlinkMessage {
         debug_assert_eq!(Self::HEADER_LEN, mem::size_of::<W1NetlinkMsg>());
         buffer[0..Self::HEADER_LEN].copy_from_slice(msg);
         buffer[Self::HEADER_LEN..].copy_from_slice(&payload);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use netlink_packet_core::{NetlinkDeserializable, NetlinkHeader};
+
+    use crate::proto::connector::NlConnectorMessage;
+
+    use super::*;
+
+    #[test]
+    fn deserialize_search_response() {
+        let payload = vec![
+            0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        ];
+        let header = NetlinkHeader {
+            length: 52,
+            message_type: 3,
+            flags: 0,
+            sequence_number: 0,
+            port_number: 0,
+        };
+
+        let deserialized_message =
+            NlConnectorMessage::<W1NetlinkMessage>::deserialize(&header, &payload).unwrap();
+
+        println!("{:?}", deserialized_message);
     }
 }

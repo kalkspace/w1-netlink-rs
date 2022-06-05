@@ -1,0 +1,120 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'w1-netlink'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=w1-netlink"
+                ],
+                "filter": {
+                    "name": "w1-netlink",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'lowlevel'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=lowlevel",
+                    "--package=w1-netlink"
+                ],
+                "filter": {
+                    "name": "lowlevel",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'lowlevel'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=lowlevel",
+                    "--package=w1-netlink"
+                ],
+                "filter": {
+                    "name": "lowlevel",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'async'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=async",
+                    "--package=w1-netlink"
+                ],
+                "filter": {
+                    "name": "async",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'async'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=async",
+                    "--package=w1-netlink"
+                ],
+                "filter": {
+                    "name": "async",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'basic'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=basic",
+                    "--package=w1-netlink"
+                ],
+                "filter": {
+                    "name": "basic",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
